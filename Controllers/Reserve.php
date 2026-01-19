@@ -83,9 +83,14 @@ class Reserve extends BaseController
             }
         }
 
+        // 주소 추출(예: "주소는 ...")
+        $s_extracted_address = $this->extractAddressFromText($s_text);
+        // 주소 문구 제거 후 AI 입력 텍스트 생성
+        $s_text_for_ai = $this->removeAddressFromText($s_text);
+
         // Perplexity API 호출 (사용자 이름 전달)
         try {
-            $a_result = $this->requestPerplexity($s_text, array(
+            $a_result = $this->requestPerplexity($s_text_for_ai, array(
                 's_user_name' => $s_user_name,
             ));
         } catch (Exception $e) {
@@ -114,8 +119,11 @@ class Reserve extends BaseController
         $s_alarm_content = $this->normalizeAlarmContent($s_alarm_content);
         $a_parsed['content'] = $s_alarm_content;
         $a_result['a_parsed'] = $a_parsed;
-        // 일반 알림은 주소 비움
+        // 주소(청약 알림일 때만 저장)
         $s_alarm_address = '';
+        if (!empty($s_extracted_address) && mb_strpos($s_alarm_content, '청약') !== false) {
+            $s_alarm_address = $s_extracted_address;
+        }
         // 알림 날짜
         $s_alarm_date = isset($a_parsed['date']) ? $a_parsed['date'] : '';
         // 알림 시간
@@ -347,6 +355,7 @@ class Reserve extends BaseController
             '  "date": "YYYY-MM-DD" (추출된 날짜, 없으면 빈 문자열),',
             '  "time": "HH:MM" (24시간 형식, 없으면 빈 문자열),',
             '  "content": "예약 내용 요약",',
+            '  "address": "주소 (없으면 빈 문자열)",',
             '  "error": "에러 메시지 (success가 false일 때만)"',
             "}",
             "",
@@ -361,7 +370,7 @@ class Reserve extends BaseController
             "   - 동사를 쓰더라도 간결하게: '업무하기', '약 먹기', '청약하기'",
             "6. content에는 날짜/시간 표현을 넣지 않는다",
             "7. 시간이 없거나 모호하면 success: false, error: '날짜/시간을 더 구체적으로 입력해 주세요.'",
-            "8. '이따가' 같은 추상 시간은 오늘 기준으로 해석한다",
+            "8. '이따가/이따' 같은 추상 시간은 오늘 기준으로 해석한다",
             "9. 'NN분에'만 있고 시 표현(NN시, 오전/오후, HH:MM 등)이 전혀 없는 경우:",
             "   - 현재 시간을 기준으로 해석",
             "   - 예1: 현재 14:45, '50분에 알림' → time: '14:50' (아직 안 지난 시간)",
@@ -369,11 +378,13 @@ class Reserve extends BaseController
             "   - 'NN분 뒤/후'는 이 규칙에서 제외 (아래 규칙 10 적용)",
             "10. 'NN분 뒤/후'는 상대 시간이므로 현재 시간에서 NN분을 더한 절대 시각으로 변환",
             "   - 예: 현재 14:45, '10분 뒤에 알림' → time: '14:55'",
+            "11. '주소는 ...' 또는 '주소: ...'가 있으면 address에 주소를 넣고, 없으면 빈 문자열로 반환한다",
+            "12. '2시'처럼 오전/오후가 없으면 현재 시간을 기준으로 가까운 미래로 해석한다 (다음으로 도달하는 시각)",
         ));
 
         return array(
             's_system_prompt' => $s_system_prompt,
-            'a_output_fields' => array('date', 'time', 'content'),
+            'a_output_fields' => array('date', 'time', 'content', 'address'),
             's_user_input' => $s_user_input,
         );
     }
@@ -432,6 +443,19 @@ class Reserve extends BaseController
         if (empty($a_parsed['date'])) {
             $a_parsed['date'] = date('Y-m-d');
             $a_return['a_parsed'] = $a_parsed;
+        }
+
+        // 날짜 보정 이후, 과거 시간이면 다음날로 보정(오전/오후 미지정 케이스 포함)
+        if (!empty($a_parsed['date']) && !empty($a_parsed['time'])) {
+            $s_alarm_datetime = $this->buildAlarmDateTime($a_parsed['date'], $a_parsed['time']);
+            $o_timezone = new DateTimeZone('Asia/Seoul');
+            $o_now = new DateTime('now', $o_timezone);
+            $o_target = DateTime::createFromFormat('Y-m-d H:i:s', $s_alarm_datetime, $o_timezone);
+            if ($o_target instanceof DateTime && $o_target < $o_now) {
+                $o_target->modify('+1 day');
+                $a_parsed['date'] = $o_target->format('Y-m-d');
+                $a_return['a_parsed'] = $a_parsed;
+            }
         }
 
         // success 필드 확인
@@ -515,6 +539,89 @@ class Reserve extends BaseController
         $a_parsed['time'] = $o_target->format('H:i');
 
         return $a_parsed;
+    }
+
+    /**
+     * 주소 추출
+     *
+     * @param string $s_text 사용자 입력
+     * @return string 추출된 주소
+     */
+    private function extractAddressFromText($s_text)
+    {
+        $s_text = trim($s_text);
+        if ($s_text === '') {
+            return '';
+        }
+
+        // "주소는 ..." / "주소: ..." 패턴
+        if (preg_match('/주소\s*(는|은)?\s*[:：]?\s*([^,\\n]+)$/u', $s_text, $a_matches)) {
+            return $this->normalizeAddressText($a_matches[2]);
+        }
+
+        // "주소는 ..."가 문장 중간에 있는 경우(콤마로 구분)
+        if (preg_match('/주소\s*(는|은)?\s*[:：]?\s*([^,\\n]+)/u', $s_text, $a_matches)) {
+            return $this->normalizeAddressText($a_matches[2]);
+        }
+
+        return '';
+    }
+
+    /**
+     * 주소 텍스트 정규화
+     * - "주소는 ~야/~다/~임/~로 해줘" 같은 말투 제거
+     *
+     * @param string $s_address 주소 후보 텍스트
+     * @return string 정규화된 주소
+     */
+    private function normalizeAddressText($s_address)
+    {
+        // 주소 문자열
+        $s_address = trim($s_address);
+        $s_address = trim($s_address, "\"'`");
+        $s_address = rtrim($s_address, " .,!?");
+        $s_address = trim($s_address);
+
+        if ($s_address === '') {
+            return '';
+        }
+
+        // 요청/지시 말투 제거 (뒤에 붙는 표현)
+        $s_address = preg_replace('/\s*(로|으로)\s*(해줘요|해줘|해주세요|해\s*주세요|부탁해요|부탁해|해주세요)\s*$/u', '', $s_address);
+        $s_address = preg_replace('/\s*(해줘요|해줘|해주세요|해\s*주세요|부탁해요|부탁해)\s*$/u', '', $s_address);
+        $s_address = trim($s_address);
+
+        // 종결 말투 제거
+        $s_address = preg_replace('/\s*(야|이야|다|임|입니다|이에요|예요)\s*$/u', '', $s_address);
+        $s_address = trim($s_address);
+
+        // 끝 구두점/따옴표 제거
+        $s_address = trim($s_address, "\"'`");
+        $s_address = rtrim($s_address, " .,!?");
+        return trim($s_address);
+    }
+
+    /**
+     * 주소 문구 제거(Perplexity 입력용)
+     *
+     * @param string $s_text 사용자 입력
+     * @return string 주소 문구 제거된 텍스트
+     */
+    private function removeAddressFromText($s_text)
+    {
+        $s_text = trim($s_text);
+        if ($s_text === '') {
+            return '';
+        }
+
+        // ", 주소는 ..." 제거
+        $s_text = preg_replace('/\\s*,?\\s*주소\\s*(는|은)?\\s*[:：]?\\s*[^,\\n]+\\s*$/u', '', $s_text);
+        // "주소는 ..." 단독 제거
+        $s_text = preg_replace('/주소\\s*(는|은)?\\s*[:：]?\\s*[^,\\n]+/u', '', $s_text);
+
+        // 잔여 구두점 정리
+        $s_text = trim($s_text, " ,");
+        return trim($s_text);
     }
 
     /**
@@ -752,6 +859,15 @@ class Reserve extends BaseController
      */
     private function getLatestMattermostChannelId()
     {
+        // pgsql 확장 확인
+        if (!function_exists('pg_connect')) {
+            return array(
+                'b_success' => false,
+                's_channel_id' => '',
+                's_error' => 'pgsql 확장이 활성화되지 않았습니다.',
+            );
+        }
+
         // PostgreSQL 연결 객체
         $o_connection = new Connection();
         $o_pg = $o_connection->pg_connect();
@@ -765,20 +881,26 @@ class Reserve extends BaseController
 
         // commandwebhooks 테이블에서 createat이 가장 큰 레코드의 채널 ID 조회
         $s_query = "SELECT channelid FROM commandwebhooks ORDER BY createat DESC LIMIT 1";
-        $o_result = pg_query($o_pg, $s_query);
+        // 함수 포인터로 호출(IDE 경고 회피)
+        $f_pg_query = 'pg_query';
+        $o_result = $f_pg_query($o_pg, $s_query);
         if (!$o_result) {
-            pg_close($o_pg);
+            $f_pg_close = 'pg_close';
+            $f_pg_close($o_pg);
             return array(
                 'b_success' => false,
                 's_channel_id' => '',
-                's_error' => 'commandwebhooks 조회 실패: ' . pg_last_error($o_pg),
+                's_error' => 'commandwebhooks 조회 실패: ' . $this->getPgLastError($o_pg),
             );
         }
 
         // 결과 행
-        $a_row = pg_fetch_assoc($o_result);
-        pg_free_result($o_result);
-        pg_close($o_pg);
+        $f_pg_fetch_assoc = 'pg_fetch_assoc';
+        $f_pg_free_result = 'pg_free_result';
+        $f_pg_close = 'pg_close';
+        $a_row = $f_pg_fetch_assoc($o_result);
+        $f_pg_free_result($o_result);
+        $f_pg_close($o_pg);
 
         if (!$a_row || !isset($a_row['channelid'])) {
             return array(
@@ -793,6 +915,22 @@ class Reserve extends BaseController
             's_channel_id' => $a_row['channelid'],
             's_error' => '',
         );
+    }
+
+    /**
+     * PostgreSQL 마지막 에러 메시지 조회
+     *
+     * @param mixed $o_pg PostgreSQL 연결
+     * @return string 에러 메시지
+     */
+    private function getPgLastError($o_pg)
+    {
+        if (!function_exists('pg_last_error')) {
+            return '알 수 없는 오류';
+        }
+        $f_pg_last_error = 'pg_last_error';
+        $s_error = $f_pg_last_error($o_pg);
+        return !empty($s_error) ? $s_error : '알 수 없는 오류';
     }
 
     /**

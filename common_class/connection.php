@@ -353,7 +353,7 @@ class Connection
     /**
      * PostgreSQL 연결 함수
      *
-     * @return resource|false PostgreSQL 연결 리소스 또는 false
+     * @return resource|false PostgreSQL 연결 또는 false
      */
     public function pg_connect()
     {
@@ -420,7 +420,15 @@ class Connection
         // PostgreSQL 연결
         $o_pg = @pg_connect($s_connection_string);
         if (!$o_pg) {
-            $this->s_db_error = 'PostgreSQL 연결 실패: ' . (pg_last_error() ?: '알 수 없는 오류');
+            $s_error = '알 수 없는 오류';
+            if (function_exists('pg_last_error')) {
+                $f_pg_last_error = 'pg_last_error';
+                $s_last_error = $f_pg_last_error();
+                if (!empty($s_last_error)) {
+                    $s_error = $s_last_error;
+                }
+            }
+            $this->s_db_error = 'PostgreSQL 연결 실패: ' . $s_error;
             return false;
         }
 
