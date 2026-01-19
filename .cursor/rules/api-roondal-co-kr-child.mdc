@@ -1,0 +1,61 @@
+---
+name: api-roondal-co-kr-child
+description: This is a new rule
+---
+0. /usr/local/web_source/.cursor/rules/common.mdc 공통 룰을 항상 참조해서 작업한다
+
+# Overview
+
+1. 모든 url을 이동할 때에는 common.inc.php를 타야한다
+
+2. 라우팅 처리는 nginx conf로 되어있다
+api.roondal.co.kr.conf
+       server_name api.roondal.co.kr;
+        root /usr/local/web_source/api.roondal.co.kr;
+
+        index index.php index.html index.htm;
+
+        access_log /var/log/nginx/api.roondal.world-access.log;
+        error_log /var/log/nginx/api.roondal.world-error.log;
+
+        # 확장자 없는 요청도 PHP로 전달
+        location / {
+                try_files $uri $uri/ @fallback;
+        }
+
+        # fallback: common.inc.php로 라우팅
+        location @fallback {
+                fastcgi_pass 127.0.0.1:9000;
+                include fastcgi_params;
+                fastcgi_param SCRIPT_FILENAME /usr/local/web_source/api.roondal.co.kr/common.inc.php;
+                fastcgi_param REQUEST_URI $request_uri;
+        }
+
+        # PHP 파일 처리
+        location ~ \.php$ {
+                fastcgi_pass 127.0.0.1:9000;
+                include fastcgi_params;
+                fastcgi_param ORIGINAL_SCRIPT_NAME $fastcgi_script_name;
+                fastcgi_param ORIGINAL_SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                fastcgi_param SCRIPT_FILENAME /usr/local/web_source/api.roondal.co.kr/common.inc.php;
+        }
+
+3. CI 프레임워크처럼 Controllers/*.php 파일은 맨 앞 파일명이 대문자다.
+
+4. CI 프레임워크처럼 Models/*.php 파일은 맨 앞 파일명이 대문자이며, 클래스명뒤에는 Model이 온다. ex) ReserveModel.php
+
+5. Controller에서 view를 부를때는, $this->view(''); 형식을,
+를, view에서 html을 부를때는 $o_functions->html_view(''); 형식을 사용해
+
+6. Views/ 디렉터리에 있는 php파일은 apps/html/에 있는 html 파일을 불러오기 위한 구조야
+
+7. view html 파일을 구성할 때에는, js랑 css 분리해
+
+8. js는 재사용이 가능하게 모듈로 작성해
+
+9. mattermost_reserve과 관련된 테이블은 g5_alarm 테이블이야, 명세를 알려줄게 
+    col1 : content : 알림 내용
+    col2 : address : 알림 내용이 청약일 시 집주소
+    col3 : alarm_date : 알림 보낼 시간
+
+10. aes-256으로 DB 패스워드 암호화가 되어있으며 db.ini의 패스워드를 .db_ini.key로 복호화 한다.

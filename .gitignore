@@ -1,3 +1,7 @@
 # DB 커넥션 정보
 common_class/config/
 
+# Perplexity API key file
+perplexity.key
+common_class/config/perplexity.key
+

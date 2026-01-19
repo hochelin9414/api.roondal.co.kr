@@ -1,0 +1,29 @@
+<?php
+
+class Category extends BaseController
+{
+    protected $db;
+    protected $model;
+
+    public function __construct()
+    {
+        parent::__construct();
+        // 방법 1: loadModel 사용
+        // $this->model = $this->loadModel('category');
+        
+        // 방법 2: 직접 인스턴스 생성 (자동 로딩 지원)
+        // CategoryModel.php 파일이 있고 CategoryModel 클래스가 있어야 함
+        // $this->model = new Category_model();
+    }
+
+    public function index()
+    {
+        if (isset($this->model)) {
+            $data = $this->model->get_category();
+            return $this->response->setJSON($data);
+        }
+        
+        $data = array('message' => 'Category controller');
+        return $this->response->setJSON($data);
+    }
+}
