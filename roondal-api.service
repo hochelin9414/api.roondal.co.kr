@@ -1,0 +1,32 @@
+[Unit]
+Description=Roondal API FastAPI Application
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/usr/local/web_source/api.roondal.co.kr
+Environment=PATH=/usr/local/web_source/api.roondal.co.kr/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+EnvironmentFile=-/usr/local/web_source/api.roondal.co.kr/.env
+ExecStart=/usr/local/web_source/api.roondal.co.kr/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+
+# 자동 재시작 설정
+Restart=always
+RestartSec=5
+
+# 프로세스 종료 타임아웃
+TimeoutStopSec=30
+
+# 로그 설정
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=roondal-api
+
+# 보안 설정
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

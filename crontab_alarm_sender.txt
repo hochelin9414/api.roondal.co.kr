@@ -1,0 +1,2 @@
+# alarm_sender_py.py - 매분 실행 (알림 발송 크론잡)
+* * * * * cd /usr/local/web_source/api.roondal.co.kr && /usr/local/web_source/api.roondal.co.kr/.venv/bin/python alarm_sender_py.py >> /var/log/roondal_alarm_sender.log 2>&1

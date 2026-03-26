@@ -1,7 +1,28 @@
-# DB 커넥션 정보
+# DB 커넥션 정보 및 OAuth 토큰
 common_class/config/
+config/
 
 # Perplexity API key file
 perplexity.key
 common_class/config/perplexity.key
+
+# Composer dependencies
+vendor/
+composer.lock
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Environment
+.env
+
+# Log files
+logs/
+
+# Temporary files and OAuth tokens
+tmp/
 
